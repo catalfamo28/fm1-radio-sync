@@ -1,4 +1,4 @@
-name: FM-1 Sync
+name: "FM-1 Sync"
 
 on:
   schedule:
