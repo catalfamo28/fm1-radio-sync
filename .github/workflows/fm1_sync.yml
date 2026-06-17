@@ -2,8 +2,8 @@ name: "FM-1 Sync"
 
 on:
   schedule:
-    - cron: '*/5 * * * *'   # every 5 minutes, 24/7
-  workflow_dispatch:          # manual "Run workflow" button in GitHub UI
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
 
 jobs:
   sync:
@@ -30,3 +30,11 @@ jobs:
 
       - name: Run sync (one-shot)
         run: python fm1_sync.py --oneshot
+
+      - name: Save song cache
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add song_cache.json
+          git diff --staged --quiet || git commit -m "chore: update song cache"
+          git push

@@ -15,6 +15,7 @@ Quick start:
 """
 
 import re
+import json
 import logging
 import webbrowser
 import pickle
@@ -37,6 +38,7 @@ FM1_URL       = "https://muzakwpn.muzak.com/wpn/030.html"
 TOKEN_FILE    = Path(__file__).parent / ".youtube_token.pickle"
 
 SCOPES = ["https://www.googleapis.com/auth/youtube"]
+CACHE_FILE = Path(__file__).parent / "song_cache.json"
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -152,8 +154,13 @@ def get_playlist_video_ids(yt, playlist_id: str) -> set[str]:
     return ids
 
 
-def search_youtube(yt, track: Track) -> Optional[str]:
-    """Search YouTube for a track. Returns the best matching video ID or None."""
+def search_youtube(yt, track: Track, cache: dict) -> Optional[str]:
+    """Search YouTube for a track, using cache to avoid repeat API calls."""
+    cache_key = f"{track.artist}|{track.title}"
+    if cache_key in cache:
+        log.info(f"  (cached) {track}  →  {cache[cache_key]}")
+        return cache[cache_key]
+
     query = f"{track.artist} - {track.title}"
     resp = yt.search().list(
         part="snippet",
@@ -167,6 +174,7 @@ def search_youtube(yt, track: Track) -> Optional[str]:
         vid_id = items[0]["id"]["videoId"]
         vid_title = items[0]["snippet"]["title"]
         log.info(f"  + {track}  →  '{vid_title}'")
+        cache[cache_key] = vid_id
         return vid_id
     log.warning(f"  ✗ Not found on YouTube: {track}")
     return None
@@ -228,6 +236,9 @@ def main(oneshot: bool = False) -> None:
     if not oneshot:
         webbrowser.open(playlist_url)
 
+    song_cache: dict = json.loads(CACHE_FILE.read_text()) if CACHE_FILE.exists() else {}
+    log.info(f"Song cache loaded: {len(song_cache)} entries")
+
     seen: set[Track] = set()
     last_now_playing: Optional[Track] = None
 
@@ -247,7 +258,7 @@ def main(oneshot: bool = False) -> None:
 
                 new_tracks = [t for t in tracks if t not in seen]
                 for track in new_tracks:
-                    vid_id = search_youtube(yt, track)
+                    vid_id = search_youtube(yt, track, song_cache)
                     if vid_id and vid_id not in in_playlist:
                         add_to_playlist(yt, pl_id, vid_id)
                         in_playlist.add(vid_id)
@@ -255,7 +266,7 @@ def main(oneshot: bool = False) -> None:
                     seen.add(track)
 
                 if now_playing != last_now_playing:
-                    vid_id = search_youtube(yt, now_playing)
+                    vid_id = search_youtube(yt, now_playing, song_cache)
                     if vid_id:
                         log.info(f"  ↑ Bumping '{now_playing}' to top of playlist")
                         bump_to_top(yt, pl_id, vid_id)
@@ -269,8 +280,10 @@ def main(oneshot: bool = False) -> None:
         except Exception as exc:
             log.warning(f"Network error — will retry in {POLL_INTERVAL}s: {exc}")
 
+        CACHE_FILE.write_text(json.dumps(song_cache, indent=2, ensure_ascii=False))
+
         if oneshot:
-            log.info("One-shot run complete.")
+            log.info(f"One-shot run complete. Cache now has {len(song_cache)} entries.")
             return
         time.sleep(POLL_INTERVAL)
 
