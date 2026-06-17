@@ -156,7 +156,7 @@ def get_playlist_video_ids(yt, playlist_id: str) -> set[str]:
 
 def search_youtube(yt, track: Track, cache: dict) -> Optional[str]:
     """Search YouTube for a track, using cache to avoid repeat API calls."""
-    cache_key = f"{track.artist}|{track.title}"
+    cache_key = track.title.lower().strip()
     if cache_key in cache:
         log.info(f"  (cached) {track}  →  {cache[cache_key]}")
         return cache[cache_key]
@@ -239,7 +239,7 @@ def main(oneshot: bool = False) -> None:
     song_cache: dict = json.loads(CACHE_FILE.read_text()) if CACHE_FILE.exists() else {}
     log.info(f"Song cache loaded: {len(song_cache)} entries")
 
-    seen: set[Track] = set()
+    seen_titles: set[str] = set()
     last_now_playing: Optional[Track] = None
 
     while True:
@@ -256,14 +256,14 @@ def main(oneshot: bool = False) -> None:
                 in_playlist = get_playlist_video_ids(yt, pl_id)
                 added = 0
 
-                new_tracks = [t for t in tracks if t not in seen]
+                new_tracks = [t for t in tracks if t.title.lower() not in seen_titles]
                 for track in new_tracks:
                     vid_id = search_youtube(yt, track, song_cache)
                     if vid_id and vid_id not in in_playlist:
                         add_to_playlist(yt, pl_id, vid_id)
                         in_playlist.add(vid_id)
                         added += 1
-                    seen.add(track)
+                    seen_titles.add(track.title.lower())
 
                 if now_playing != last_now_playing:
                     vid_id = search_youtube(yt, now_playing, song_cache)
