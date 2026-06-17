@@ -1,0 +1,32 @@
+name: FM-1 Sync
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # every 5 minutes, 24/7
+  workflow_dispatch:          # manual "Run workflow" button in GitHub UI
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore credentials
+        run: |
+          echo '${{ secrets.CLIENT_SECRET_JSON }}' > client_secret.json
+          echo '${{ secrets.YOUTUBE_TOKEN_B64 }}' | base64 -d > .youtube_token.pickle
+
+      - name: Run sync (one-shot)
+        run: python fm1_sync.py --oneshot

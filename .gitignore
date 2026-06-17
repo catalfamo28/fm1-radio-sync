@@ -1,0 +1,7 @@
+client_secret.json
+.youtube_token.pickle
+fm1.log
+export_secrets.sh
+__pycache__/
+*.pyc
+SETUP.md
