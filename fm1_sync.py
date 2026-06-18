@@ -229,7 +229,13 @@ def main(oneshot: bool = False) -> None:
 
     log.info("Connecting to YouTube…")
     yt = get_youtube_client()
-    pl_id = get_or_create_playlist(yt, PLAYLIST_NAME)
+    try:
+        pl_id = get_or_create_playlist(yt, PLAYLIST_NAME)
+    except Exception as exc:
+        if "quotaExceeded" in str(exc) or "403" in str(exc):
+            log.warning("Quota exhausted at startup — skipping this run.")
+            return
+        raise
 
     playlist_url = f"https://www.youtube.com/playlist?list={pl_id}"
     log.info(f"Playlist: {playlist_url}")
