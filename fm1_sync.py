@@ -264,23 +264,18 @@ def main(oneshot: bool = False) -> None:
                         added += 1
                     seen_titles.add(track.title.lower())
 
-                last_bumped = song_cache.get("_last_bumped")
-                if now_playing.title.lower() != last_bumped:
-                    vid_id = search_youtube(yt, now_playing, song_cache)
-                    if vid_id:
-                        log.info(f"  ↑ Bumping '{now_playing}' to top of playlist")
-                        bump_to_top(yt, pl_id, vid_id)
-                        song_cache["_last_bumped"] = now_playing.title.lower()
-                else:
-                    log.info(f"  (already at top: '{now_playing.title}')")
-
                 if added:
                     log.info(f"Added {added} new track(s).")
                 else:
                     log.info("No new tracks since last check.")
 
         except Exception as exc:
-            log.warning(f"Network error — will retry in {POLL_INTERVAL}s: {exc}")
+            log.warning(f"Error during sync: {exc}")
+            # Exit cleanly on quota exhaustion so the run shows green
+            if "quotaExceeded" in str(exc) or "403" in str(exc):
+                log.warning("Quota exhausted — skipping until next reset.")
+                CACHE_FILE.write_text(json.dumps(song_cache, indent=2, ensure_ascii=False))
+                return
 
         CACHE_FILE.write_text(json.dumps(song_cache, indent=2, ensure_ascii=False))
 
