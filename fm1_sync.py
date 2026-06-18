@@ -240,7 +240,6 @@ def main(oneshot: bool = False) -> None:
     log.info(f"Song cache loaded: {len(song_cache)} entries")
 
     seen_titles: set[str] = set()
-    last_now_playing: Optional[Track] = None
 
     while True:
         log.info("── Polling FM-1 ────────────────────────────────────")
@@ -265,12 +264,15 @@ def main(oneshot: bool = False) -> None:
                         added += 1
                     seen_titles.add(track.title.lower())
 
-                if now_playing != last_now_playing:
+                last_bumped = song_cache.get("_last_bumped")
+                if now_playing.title.lower() != last_bumped:
                     vid_id = search_youtube(yt, now_playing, song_cache)
                     if vid_id:
                         log.info(f"  ↑ Bumping '{now_playing}' to top of playlist")
                         bump_to_top(yt, pl_id, vid_id)
-                    last_now_playing = now_playing
+                        song_cache["_last_bumped"] = now_playing.title.lower()
+                else:
+                    log.info(f"  (already at top: '{now_playing.title}')")
 
                 if added:
                     log.info(f"Added {added} new track(s).")
