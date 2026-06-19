@@ -245,6 +245,24 @@ def main(oneshot: bool = False) -> None:
     song_cache: dict = json.loads(CACHE_FILE.read_text()) if CACHE_FILE.exists() else {}
     log.info(f"Song cache loaded: {len(song_cache)} entries")
 
+    # Load playlist IDs from cache to avoid fetching from YouTube every run.
+    # On first run (cache empty), fall back to the API once to bootstrap.
+    cached_playlist_ids = song_cache.get("_playlist_ids")
+    if cached_playlist_ids is not None:
+        in_playlist: set[str] = set(cached_playlist_ids)
+        log.info(f"Playlist IDs loaded from cache: {len(in_playlist)} videos")
+    else:
+        log.info("Fetching playlist contents from YouTube (first run)…")
+        try:
+            in_playlist = get_playlist_video_ids(yt, pl_id)
+        except Exception as exc:
+            if "quotaExceeded" in str(exc) or "403" in str(exc):
+                log.warning("Quota exhausted fetching playlist — skipping this run.")
+                return
+            raise
+        song_cache["_playlist_ids"] = list(in_playlist)
+        log.info(f"Playlist bootstrapped: {len(in_playlist)} videos")
+
     seen_titles: set[str] = set()
 
     while True:
@@ -258,7 +276,6 @@ def main(oneshot: bool = False) -> None:
                 now_playing = tracks[0]
                 log.info(f"Now playing: {now_playing}")
 
-                in_playlist = get_playlist_video_ids(yt, pl_id)
                 added = 0
 
                 new_tracks = [t for t in tracks if t.title.lower() not in seen_titles]
@@ -267,6 +284,7 @@ def main(oneshot: bool = False) -> None:
                     if vid_id and vid_id not in in_playlist:
                         add_to_playlist(yt, pl_id, vid_id)
                         in_playlist.add(vid_id)
+                        song_cache["_playlist_ids"] = list(in_playlist)
                         added += 1
                     seen_titles.add(track.title.lower())
 
