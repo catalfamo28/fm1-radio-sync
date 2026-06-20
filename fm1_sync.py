@@ -223,6 +223,12 @@ def bump_to_top(yt, playlist_id: str, video_id: str) -> None:
 
 POLL_INTERVAL = 30  # seconds between checks
 
+_QUOTA_KEYWORDS = ("quotaExceeded", "rateLimitExceeded", "403", "429")
+
+def _is_quota_error(exc: Exception) -> bool:
+    s = str(exc)
+    return any(k in s for k in _QUOTA_KEYWORDS)
+
 # ── Main loop ─────────────────────────────────────────────────────────────────
 def main(oneshot: bool = False) -> None:
     import time
@@ -232,7 +238,7 @@ def main(oneshot: bool = False) -> None:
     try:
         pl_id = get_or_create_playlist(yt, PLAYLIST_NAME)
     except Exception as exc:
-        if "quotaExceeded" in str(exc) or "403" in str(exc):
+        if _is_quota_error(exc):
             log.warning("Quota exhausted at startup — skipping this run.")
             return
         raise
@@ -256,7 +262,7 @@ def main(oneshot: bool = False) -> None:
         try:
             in_playlist = get_playlist_video_ids(yt, pl_id)
         except Exception as exc:
-            if "quotaExceeded" in str(exc) or "403" in str(exc):
+            if _is_quota_error(exc):
                 log.warning("Quota exhausted fetching playlist — skipping this run.")
                 return
             raise
@@ -296,7 +302,7 @@ def main(oneshot: bool = False) -> None:
         except Exception as exc:
             log.warning(f"Error during sync: {exc}")
             # Exit cleanly on quota exhaustion so the run shows green
-            if "quotaExceeded" in str(exc) or "403" in str(exc):
+            if _is_quota_error(exc):
                 log.warning("Quota exhausted — skipping until next reset.")
                 CACHE_FILE.write_text(json.dumps(song_cache, indent=2, ensure_ascii=False))
                 return
