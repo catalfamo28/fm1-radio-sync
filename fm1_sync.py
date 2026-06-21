@@ -144,9 +144,10 @@ def get_playlist_video_ids(yt, playlist_id: str) -> set[str]:
                 maxResults=50,
                 pageToken=page_token,
             ).execute()
-        except Exception:
-            # New playlist may take a moment to be visible — treat as empty
-            break
+        except Exception as exc:
+            if _is_quota_error(exc):
+                raise  # let caller handle quota errors — don't silently return partial results
+            break  # new playlist not yet visible — treat as empty
         for item in resp.get("items", []):
             ids.add(item["contentDetails"]["videoId"])
         page_token = resp.get("nextPageToken")
@@ -294,7 +295,10 @@ def main(oneshot: bool = False) -> None:
             else:
                 log.warning(f"Could not update description: {exc}")
 
-    seen_titles: set[str] = set()
+    # Persistent title-based dedup: survives across runs so the same song
+    # is never added twice even if the video ID or cache changes.
+    added_titles: set[str] = set(song_cache.get("_added_titles", []))
+    log.info(f"Added-titles cache: {len(added_titles)} titles")
 
     while True:
         log.info("── Polling FM-1 ────────────────────────────────────")
@@ -309,15 +313,23 @@ def main(oneshot: bool = False) -> None:
 
                 added = 0
 
-                new_tracks = [t for t in tracks if t.title.lower() not in seen_titles]
-                for track in new_tracks:
+                for track in tracks:
+                    title_key = track.title.lower().strip()
+                    if title_key in added_titles:
+                        log.info(f"  (already added) {track}")
+                        continue
                     vid_id = search_youtube(yt, track, song_cache)
                     if vid_id and vid_id not in in_playlist:
                         add_to_playlist(yt, pl_id, vid_id)
                         in_playlist.add(vid_id)
+                        added_titles.add(title_key)
                         song_cache["_playlist_ids"] = list(in_playlist)
+                        song_cache["_added_titles"] = list(added_titles)
                         added += 1
-                    seen_titles.add(track.title.lower())
+                    elif vid_id:
+                        # video already in playlist — record title so we skip next time
+                        added_titles.add(title_key)
+                        song_cache["_added_titles"] = list(added_titles)
 
                 if added:
                     log.info(f"Added {added} new track(s).")
