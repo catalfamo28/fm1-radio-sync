@@ -18,6 +18,7 @@ import re
 import json
 import logging
 import webbrowser
+from datetime import date as _date
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
@@ -223,6 +224,13 @@ def bump_to_top(yt, playlist_id: str, video_id: str) -> None:
 
 POLL_INTERVAL = 30  # seconds between checks
 
+PLAYLIST_DESCRIPTION_TEMPLATE = (
+    "Live mirror of Muzak FM-1 — auto-synced daily | Updated: {date}\n\n"
+    "The soft rock and pop you hear while shopping at Home Depot, CVS, "
+    "T.J. Maxx, Whole Foods, Napili Market, and thousands of other retail "
+    "locations — streamed live and added here automatically."
+)
+
 _QUOTA_KEYWORDS = ("quotaExceeded", "rateLimitExceeded", "403", "429")
 
 def _is_quota_error(exc: Exception) -> bool:
@@ -268,6 +276,23 @@ def main(oneshot: bool = False) -> None:
             raise
         song_cache["_playlist_ids"] = list(in_playlist)
         log.info(f"Playlist bootstrapped: {len(in_playlist)} videos")
+
+    # Update the playlist description once per day with today's date.
+    today_str = _date.today().strftime("%B %d, %Y")
+    if song_cache.get("_last_description_date") != today_str:
+        new_desc = PLAYLIST_DESCRIPTION_TEMPLATE.format(date=today_str)
+        try:
+            yt.playlists().update(
+                part="snippet",
+                body={"id": pl_id, "snippet": {"title": PLAYLIST_NAME, "description": new_desc}},
+            ).execute()
+            song_cache["_last_description_date"] = today_str
+            log.info(f"Playlist description updated for {today_str}.")
+        except Exception as exc:
+            if _is_quota_error(exc):
+                log.warning("Quota exhausted updating description — will retry tomorrow.")
+            else:
+                log.warning(f"Could not update description: {exc}")
 
     seen_titles: set[str] = set()
 
