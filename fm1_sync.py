@@ -94,17 +94,25 @@ def fetch_tracks() -> list[Track]:
 # ── YouTube auth ──────────────────────────────────────────────────────────────
 def get_youtube_client():
     """Return an authenticated YouTube API client, using cached token if available."""
-    if not TOKEN_FILE.exists():
-        raise RuntimeError("Token file missing — run fm1_sync.py locally to authorize.")
+    import os
+    in_ci = bool(os.environ.get("CI"))
 
-    creds = pickle.loads(TOKEN_FILE.read_bytes())
+    creds = None
+    if TOKEN_FILE.exists():
+        creds = pickle.loads(TOKEN_FILE.read_bytes())
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
             TOKEN_FILE.write_bytes(pickle.dumps(creds))
+        elif in_ci:
+            # In GitHub Actions: fail fast instead of hanging on a browser prompt
+            raise RuntimeError("Token expired — run fm1_sync.py locally to re-authorize, then update YOUTUBE_TOKEN_B64 secret.")
         else:
-            raise RuntimeError("Token expired or missing refresh_token — run fm1_sync.py locally to re-authorize, then update YOUTUBE_TOKEN_B64 secret.")
+            # Running locally: open browser for one-time authorization
+            flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRETS_FILE, SCOPES)
+            creds = flow.run_local_server(port=8888, open_browser=True)
+            TOKEN_FILE.write_bytes(pickle.dumps(creds))
 
     return build("youtube", "v3", credentials=creds)
 
