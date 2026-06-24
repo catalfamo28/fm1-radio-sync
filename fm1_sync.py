@@ -94,18 +94,17 @@ def fetch_tracks() -> list[Track]:
 # ── YouTube auth ──────────────────────────────────────────────────────────────
 def get_youtube_client():
     """Return an authenticated YouTube API client, using cached token if available."""
-    creds = None
+    if not TOKEN_FILE.exists():
+        raise RuntimeError("Token file missing — run fm1_sync.py locally to authorize.")
 
-    if TOKEN_FILE.exists():
-        creds = pickle.loads(TOKEN_FILE.read_bytes())
+    creds = pickle.loads(TOKEN_FILE.read_bytes())
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
+            TOKEN_FILE.write_bytes(pickle.dumps(creds))
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRETS_FILE, SCOPES)
-            creds = flow.run_local_server(port=8888, open_browser=True)
-        TOKEN_FILE.write_bytes(pickle.dumps(creds))
+            raise RuntimeError("Token expired or missing refresh_token — run fm1_sync.py locally to re-authorize, then update YOUTUBE_TOKEN_B64 secret.")
 
     return build("youtube", "v3", credentials=creds)
 
