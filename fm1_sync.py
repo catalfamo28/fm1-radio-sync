@@ -305,19 +305,17 @@ def main(oneshot: bool = False) -> None:
     # is never added twice even if the video ID or cache changes.
     added_titles: set[str] = set(song_cache.get("_added_titles", []))
 
-    # One-time bootstrap: on first run after this feature deployed, mark every
-    # cached title whose video_id is already in the playlist as "added" so
-    # songs already in the playlist don't get re-added when they play again.
-    if "_added_titles" not in song_cache:
-        for title_key, vid_id in song_cache.items():
-            if title_key.startswith("_"):
-                continue
-            if isinstance(vid_id, str) and vid_id in in_playlist:
-                added_titles.add(title_key)
-        song_cache["_added_titles"] = list(added_titles)
-        log.info(f"Bootstrapped added_titles from existing cache: {len(added_titles)} titles")
-    else:
-        log.info(f"Added-titles cache: {len(added_titles)} titles")
+    # Every run, pull any title from the search history into added_titles.
+    # This means manual playlist deletions or cache resets can never cause
+    # re-adds — if we've ever searched for a title, we won't add it again.
+    search_history = {k for k, v in song_cache.items()
+                      if not k.startswith("_") and isinstance(v, str)}
+    new_from_history = search_history - added_titles
+    if new_from_history:
+        added_titles.update(new_from_history)
+        log.info(f"Merged {len(new_from_history)} title(s) from search history into dedup set.")
+    song_cache["_added_titles"] = list(added_titles)
+    log.info(f"Added-titles cache: {len(added_titles)} titles")
 
     while True:
         log.info("── Polling FM-1 ────────────────────────────────────")
