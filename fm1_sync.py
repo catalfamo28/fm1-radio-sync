@@ -102,13 +102,20 @@ def get_youtube_client():
         creds = pickle.loads(TOKEN_FILE.read_bytes())
 
     if not creds or not creds.valid:
+        refreshed = False
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            TOKEN_FILE.write_bytes(pickle.dumps(creds))
-        elif in_ci:
-            # In GitHub Actions: fail fast instead of hanging on a browser prompt
-            raise RuntimeError("Token expired — run fm1_sync.py locally to re-authorize, then update YOUTUBE_TOKEN_B64 secret.")
-        else:
+            try:
+                creds.refresh(Request())
+                TOKEN_FILE.write_bytes(pickle.dumps(creds))
+                refreshed = True
+            except Exception:
+                if in_ci:
+                    raise
+                # Refresh token revoked — fall through to browser re-auth below
+
+        if not refreshed and (not creds or not creds.valid):
+            if in_ci:
+                raise RuntimeError("Token expired/revoked — run fm1_sync.py locally to re-authorize, then update YOUTUBE_TOKEN_B64 secret.")
             # Running locally: open browser for one-time authorization
             flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRETS_FILE, SCOPES)
             creds = flow.run_local_server(port=8888, open_browser=True)
