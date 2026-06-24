@@ -243,14 +243,20 @@ def main(oneshot: bool = False) -> None:
     import time
 
     log.info("Connecting to YouTube…")
-    yt = get_youtube_client()
+    try:
+        yt = get_youtube_client()
+    except Exception as exc:
+        log.warning(f"Auth failed ({exc}) — token may be expired. Re-run fm1_sync.py locally to refresh, then update YOUTUBE_TOKEN_B64 secret.")
+        return
+
     try:
         pl_id = get_or_create_playlist(yt, PLAYLIST_NAME)
     except Exception as exc:
         if _is_quota_error(exc):
             log.warning("Quota exhausted at startup — skipping this run.")
-            return
-        raise
+        else:
+            log.warning(f"Could not reach YouTube ({exc}) — skipping this run.")
+        return
 
     playlist_url = f"https://www.youtube.com/playlist?list={pl_id}"
     log.info(f"Playlist: {playlist_url}")
