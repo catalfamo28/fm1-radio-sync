@@ -125,14 +125,14 @@ def get_youtube_client():
 
 
 # ── YouTube helpers ───────────────────────────────────────────────────────────
-def get_or_create_playlist(yt, name: str) -> str:
-    """Return playlist ID, creating it if it doesn't exist."""
+def get_or_create_playlist(yt, name: str) -> tuple[str, str]:
+    """Return (playlist_id, current_description), creating it if it doesn't exist."""
     response = yt.playlists().list(part="snippet", mine=True, maxResults=50).execute()
     for item in response.get("items", []):
         if item["snippet"]["title"] == name:
             pl_id = item["id"]
             log.info(f"Using existing playlist '{name}'  ({pl_id})")
-            return pl_id
+            return pl_id, item["snippet"].get("description", "")
 
     result = yt.playlists().insert(
         part="snippet,status",
@@ -143,7 +143,7 @@ def get_or_create_playlist(yt, name: str) -> str:
     ).execute()
     pl_id = result["id"]
     log.info(f"Created playlist '{name}'  ({pl_id})")
-    return pl_id
+    return pl_id, ""
 
 
 def get_playlist_video_ids(yt, playlist_id: str) -> set[str]:
@@ -264,7 +264,7 @@ def main(oneshot: bool = False) -> None:
         return
 
     try:
-        pl_id = get_or_create_playlist(yt, PLAYLIST_NAME)
+        pl_id, current_desc = get_or_create_playlist(yt, PLAYLIST_NAME)
     except Exception as exc:
         if _is_quota_error(exc):
             log.warning("Quota exhausted at startup — skipping this run.")
@@ -299,8 +299,10 @@ def main(oneshot: bool = False) -> None:
         log.info(f"Playlist bootstrapped: {len(in_playlist)} videos")
 
     # Update the playlist description once per day with today's date.
+    # Compare against the actual YouTube description (fetched above), not the cache,
+    # so a failed/missed update is retried rather than silently skipped.
     today_str = _date.today().strftime("%B %d, %Y")
-    if song_cache.get("_last_description_date") != today_str:
+    if today_str not in current_desc:
         new_desc = PLAYLIST_DESCRIPTION_TEMPLATE.format(date=today_str)
         try:
             yt.playlists().update(
@@ -314,6 +316,25 @@ def main(oneshot: bool = False) -> None:
                 log.warning("Quota exhausted updating description — will retry tomorrow.")
             else:
                 log.warning(f"Could not update description: {exc}")
+
+    # Once per day, re-fetch playlist video IDs from YouTube to catch manual edits.
+    # This prevents stale cache from causing re-adds of songs the user manually removed.
+    if song_cache.get("_last_ids_refresh_date") != today_str:
+        log.info("Daily sync: fetching current playlist contents from YouTube…")
+        try:
+            fresh_ids = get_playlist_video_ids(yt, pl_id)
+            new_ids = fresh_ids - in_playlist
+            if new_ids:
+                log.info(f"  Found {len(new_ids)} video ID(s) not in cache — merging.")
+            in_playlist |= fresh_ids
+            song_cache["_playlist_ids"] = list(in_playlist)
+            song_cache["_last_ids_refresh_date"] = today_str
+            log.info(f"Playlist IDs synced: {len(in_playlist)} total")
+        except Exception as exc:
+            if _is_quota_error(exc):
+                log.warning("Quota exhausted syncing playlist IDs — will retry tomorrow.")
+            else:
+                log.warning(f"Could not sync playlist IDs: {exc}")
 
     # Persistent title-based dedup: survives across runs so the same song
     # is never added twice even if the video ID or cache changes.
